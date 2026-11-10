@@ -78,3 +78,27 @@ def simulate(level, payload):
     result.sort(key=lambda r: r['production'], reverse=True)
     return emit({'demand': float(f.sum()), 'production': float(x.sum()), 'imports': float(m.sum()),
                  'valueAdded': float(v.sum()), 'multiplier': float(x.sum() / f.sum()), 'rows': result})
+
+def linkage(level):
+    d = D[level]; L = d['L']
+    col = L.sum(axis=0); row = L.sum(axis=1)
+    back = col / col.mean(); fwd = row / row.mean()
+    def kind(b, f):
+        if b >= 1 and f >= 1: return '전·후방 연쇄 산업'
+        if b >= 1: return '후방연쇄 중심(수요 견인)'
+        if f >= 1: return '전방연쇄 중심(공급 기반)'
+        return '독립적 산업'
+    rows = [{'code': c, 'name': n, 'backward': float(b), 'forward': float(f), 'type': kind(b, f)}
+            for c, n, b, f in zip(d['codes'], d['names'], back, fwd)]
+    return emit({'rows': rows})
+
+def demand_items(level, code):
+    book = D[level]['book']; out = {}
+    for key, s in (('production', '최종수요 항목별 생산유발액'), ('imports', '최종수요 항목별 수입유발액'),
+                   ('valueAdded', '최종수요 항목별 부가가치유발액')):
+        rows = book[s]
+        r = next(r for r in rows[6:] if r and str(r[0]) == code)
+        n = len([c for c in rows[4][2:] if c is not None])
+        out[key] = [float(x or 0) for x in r[2:2 + n]]
+        names = [str(x or '').replace('\n', '') for x in rows[5][2:2 + n]]
+    return emit({'items': names, **out})

@@ -9,7 +9,7 @@ function startWorker(){worker=new Worker('./worker.js');worker.onmessage=({data:
 const lab=x=>x.code+' '+x.name+(x.tag?' ('+x.tag+')':'');
 function options(el,list){el.replaceChildren(...list.map(x=>{const o=document.createElement('option');o.value=x.code;o.textContent=lab(x);return o;}));}
 function invalidate(){result=null;$('results').hidden=true;}
-const IDS=['sheet','row','sector','add','run','row-search','col-search','sector-search','amount','level'];
+const IDS=['link-sort','fd-search','fd-sector','sheet','row','sector','add','run','row-search','col-search','sector-search','amount','level'];
 function setEnabled(on){for(const id of IDS)$(id).disabled=!on;}
 async function useLevel(lv){
  invalidate();basket=[];renderBasket();setEnabled(false);$('load-basic').disabled=true;
@@ -27,7 +27,7 @@ async function useLevel(lv){
   for(const id of ['sector-search','row-search','col-search'])$(id).value='';
   $('sheet').replaceChildren(...d.sheets.map(s=>{const o=text('option',s);o.value=s;return o;}));$('row').replaceChildren();
   $('validation').textContent=LABEL[lv]+'\n'+JSON.stringify(d.residuals,null,2)+'\n최대 절대 잔차: 허용값 1e-8 미만';
-  $('level').value=lv;setEnabled(true);await explore();
+  $('level').value=lv;options($('fd-sector'),sectors);$('fd-search').value='';setEnabled(true);await explore();await loadLinkage();await loadItems();
   $('status').textContent='준비 완료 · '+LABEL[lv]+' · '+sectors.length+'개 부문 · '+d.sheets.length+'개 시트 · 계수 검증 통과';
   $('load-basic').textContent='자료 불러오기 완료';
  }catch(e){$('status').textContent='준비 실패: '+e.message+' — 새로고침 후 재시도하세요.';$('level').disabled=false;$('load-basic').disabled=false;if(loaded[level]){setEnabled(true);}}
@@ -49,4 +49,14 @@ function renderResult(){$('results').hidden=false;$('cards').replaceChildren(...
 function csvCell(v){let s=String(v);if(/^[=+@-]/.test(s)&&typeof v!=='number')s="'"+s;return '"'+s.replaceAll('"','""')+'"';}
 $('download').onclick=()=>{if(!result)return;const rows=[['산업코드','산업명','생산유발액_백만원','수입유발액_백만원','부가가치유발액_백만원'],...result.rows.map(r=>[r.code,r.name,r.production,r.imports,r.valueAdded])];const url=URL.createObjectURL(new Blob(['\ufeff'+rows.map(r=>r.map(csvCell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='io-2023-'+level+'-results.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 
+
+let linkRows=[];
+async function loadLinkage(){const d=await call('linkage',{level});linkRows=d.rows;renderLinkage();}
+function renderLinkage(){const k=$('link-sort').value;$('link-rows').replaceChildren(...[...linkRows].sort((a,b)=>b[k]-a[k]).map(r=>{const tr=document.createElement('tr');[r.code,r.name,r.backward.toFixed(3),r.forward.toFixed(3),r.type].forEach(v=>tr.append(text('td',v)));return tr;}));}
+async function loadItems(){const code=$('fd-sector').value;if(!code){$('fd-rows').replaceChildren();return;}
+ const d=await call('items',{level,code}),s=sectors.find(x=>x.code===code),tot=d.production[d.production.length-1]||1;
+ $('fd-caption').textContent=(s?s.code+' '+s.name:code)+' — 최종수요 항목별 유발액(백만원)';
+ $('fd-rows').replaceChildren(...d.items.map((n,i)=>{const tr=document.createElement('tr');[n,fmt(d.production[i]),fmt(d.imports[i]),fmt(d.valueAdded[i]),(d.production[i]/tot*100).toFixed(1)+'%'].forEach(v=>tr.append(text('td',v)));return tr;}));}
+$('link-sort').onchange=renderLinkage;$('fd-sector').onchange=loadItems;
+$('fd-search').oninput=()=>{const q=$('fd-search').value.trim();options($('fd-sector'),sectors.filter(s=>lab(s).includes(q)));loadItems();};
 $('load-basic').onclick=()=>useLevel($('level').value);
