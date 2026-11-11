@@ -51,11 +51,35 @@ $('download').onclick=()=>{if(!result)return;const rows=[['산업코드','산업
 
 
 let linkRows=[];
-async function loadLinkage(){const d=await call('linkage',{level});linkRows=d.rows;renderLinkage();}
+async function loadLinkage(){const d=await call('linkage',{level});linkRows=d.rows;renderLinkage();drawLinkChart();}
+const NS='http://www.w3.org/2000/svg';
+function svg(n,at,t){const e=document.createElementNS(NS,n);for(const k in at)e.setAttribute(k,at[k]);if(t!==undefined)e.textContent=t;return e;}
+const KIND=[['전·후방','both','전·후방 연쇄 산업'],['후방','back','후방연쇄 중심'],['전방','fwd','전방연쇄 중심'],['독립','ind','독립적 산업']];
+const kindOf=t=>KIND.find(k=>t.startsWith(k[0]))[1];
+function drawLinkChart(){
+ const W=640,H=470,m={l:56,r:18,t:18,b:48},rows=linkRows,xs=rows.map(r=>r.backward),ys=rows.map(r=>r.forward);
+ const x0=Math.min(...xs,.9)*.95,x1=Math.max(...xs,1.1)*1.05,y0=Math.min(...ys,.9)*.95,y1=Math.max(...ys,1.1)*1.05,lg=Math.log;
+ const sx=v=>m.l+(lg(v)-lg(x0))/(lg(x1)-lg(x0))*(W-m.l-m.r),sy=v=>H-m.b-(lg(v)-lg(y0))/(lg(y1)-lg(y0))*(H-m.t-m.b);
+ const s=svg('svg',{viewBox:`0 0 ${W} ${H}`,role:'img','aria-label':'산업별 후방·전방연쇄효과 산점도'});
+ const X=sx(1),Y=sy(1),R=W-m.r,B=H-m.b;
+ s.append(svg('rect',{x:X,y:m.t,width:R-X,height:Y-m.t,class:'q-both'}),svg('line',{x1:X,x2:X,y1:m.t,y2:B,class:'ref'}),svg('line',{x1:m.l,x2:R,y1:Y,y2:Y,class:'ref'}),svg('rect',{x:m.l,y:m.t,width:W-m.l-m.r,height:H-m.t-m.b,class:'frame'}));
+ for(const v of [.5,.75,1,1.5,2,3,4,6,8,12,16]){if(v>x0&&v<x1){s.append(svg('text',{x:sx(v),y:B+16,'text-anchor':'middle'},v));}if(v>y0&&v<y1){s.append(svg('text',{x:m.l-8,y:sy(v)+4,'text-anchor':'end'},v));}}
+ s.append(svg('text',{x:(m.l+R)/2,y:H-8,'text-anchor':'middle',class:'ax'},'후방연쇄효과(영향력계수) → 클수록 다른 산업을 많이 끌어올림'),svg('text',{x:14,y:(m.t+B)/2,'text-anchor':'middle',class:'ax',transform:`rotate(-90 14 ${(m.t+B)/2})`},'전방연쇄효과(감응도계수) →'));
+ s.append(svg('text',{x:R-6,y:m.t+16,'text-anchor':'end',class:'qt'},'전·후방 연쇄'),svg('text',{x:R-6,y:B-8,'text-anchor':'end',class:'qt'},'후방연쇄 중심'),svg('text',{x:m.l+6,y:m.t+16,class:'qt'},'전방연쇄 중심'),svg('text',{x:m.l+6,y:B-8,class:'qt'},'독립적'));
+ const r0=rows.length>200?3:4.5;
+ for(const r of rows){const c=svg('circle',{cx:sx(r.backward),cy:sy(r.forward),r:r0,class:'dot-'+kindOf(r.type)});c.append(svg('title',{},r.code+' '+r.name+'\n후방 '+r.backward.toFixed(3)+' · 전방 '+r.forward.toFixed(3)+'\n'+r.type));s.append(c);}
+ const placed=[];
+ for(const r of rows.filter(r=>kindOf(r.type)==='both').sort((a,b)=>b.backward+b.forward-a.backward-a.forward).slice(0,5)){let ty=sy(r.forward)-6;while(placed.some(p=>Math.abs(p-ty)<13))ty+=13;placed.push(ty);s.append(svg('text',{x:sx(r.backward)+7,y:ty,class:'pt'},r.name));}
+ $('link-chart').replaceChildren(s);
+ $('link-legend').replaceChildren(...KIND.map(k=>{const sp=document.createElement('span');const d=document.createElement('i');d.className='sw dot-'+k[1];sp.append(d,k[2]+' '+rows.filter(r=>kindOf(r.type)===k[1]).length+'개');return sp;}));
+}
+
 function renderLinkage(){const k=$('link-sort').value;$('link-rows').replaceChildren(...[...linkRows].sort((a,b)=>b[k]-a[k]).map(r=>{const tr=document.createElement('tr');[r.code,r.name,r.backward.toFixed(3),r.forward.toFixed(3),r.type].forEach(v=>tr.append(text('td',v)));return tr;}));}
 async function loadItems(){const code=$('fd-sector').value;if(!code){$('fd-rows').replaceChildren();return;}
  const d=await call('items',{level,code}),s=sectors.find(x=>x.code===code),tot=d.production[d.production.length-1]||1;
  $('fd-caption').textContent=(s?s.code+' '+s.name:code)+' — 최종수요 항목별 유발액(백만원)';
+ const mx=Math.max(...d.production.slice(0,-1))||1;
+ $('fd-chart').replaceChildren(...d.items.slice(0,-1).map((n,i)=>{const b=document.createElement('div');b.className='bar';b.append(text('span',n+' · '+fmt(Math.round(d.production[i]))+'백만원 ('+(d.production[i]/tot*100).toFixed(1)+'%)'));const t=document.createElement('div');t.className='track';const f=document.createElement('div');f.className='fill';f.style.width=(d.production[i]/mx*100)+'%';t.append(f);b.append(t);return b;}));
  $('fd-rows').replaceChildren(...d.items.map((n,i)=>{const tr=document.createElement('tr');[n,fmt(d.production[i]),fmt(d.imports[i]),fmt(d.valueAdded[i]),(d.production[i]/tot*100).toFixed(1)+'%'].forEach(v=>tr.append(text('td',v)));return tr;}));}
 $('link-sort').onchange=renderLinkage;$('fd-sector').onchange=loadItems;
 $('fd-search').oninput=()=>{const q=$('fd-search').value.trim();options($('fd-sector'),sectors.filter(s=>lab(s).includes(q)));loadItems();};
