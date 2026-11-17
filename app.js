@@ -83,4 +83,7 @@ async function loadItems(){const code=$('fd-sector').value;if(!code){$('fd-rows'
  $('fd-rows').replaceChildren(...d.items.map((n,i)=>{const tr=document.createElement('tr');[n,fmt(d.production[i]),fmt(d.imports[i]),fmt(d.valueAdded[i]),(d.production[i]/tot*100).toFixed(1)+'%'].forEach(v=>tr.append(text('td',v)));return tr;}));}
 $('link-sort').onchange=renderLinkage;$('fd-sector').onchange=loadItems;
 $('fd-search').oninput=()=>{const q=$('fd-search').value.trim();options($('fd-sector'),sectors.filter(s=>lab(s).includes(q)));loadItems();};
+const FESTIVAL=[['5811',3000],['5812',1000],['5820',2500],['5200',1500],['5321',700],['7902',800],['8002',500]];
+$('preset-festival').onclick=async()=>{const b=$('preset-festival');b.disabled=true;try{if(!loaded.basic||level!=='basic'){$('level').value='basic';await useLevel('basic');}
+ if(!loaded.basic)return;basket=FESTIVAL.map(([c,v])=>({...sectors.find(x=>x.code===c),amount:v}));invalidate();renderBasket();$('simulation').scrollIntoView({behavior:'smooth'});}finally{b.disabled=false;}};
 $('load-basic').onclick=()=>useLevel($('level').value);
