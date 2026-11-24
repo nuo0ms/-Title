@@ -34,7 +34,7 @@ def initialize(level, raw):
                  '수입': float(np.max(np.abs(am @ L - M))),
                  '부가가치': float(np.max(np.abs(v[:, None] * L - V)))}
     if max(residuals.values()) >= 1e-8: raise ValueError('계수 검증 실패: ' + str(residuals))
-    D[level] = dict(book=book, codes=codes, names=names, L=L, M=M, V=V)
+    D[level] = dict(book=book, codes=codes, names=names, L=L, M=M, V=V, Ad=ad)
     return emit({'sectors': [{'code': c, 'name': n} for c, n in zip(codes, names)],
                  'sheets': list(book), 'residuals': residuals})
 
@@ -64,14 +64,27 @@ def explore(level, sheet, rowcode):
     return emit({'rows': choices, 'selected': str(chosen[0]), 'name': str(chosen[1]),
                  'unit': str(rows[3][0] or '係数').replace('係数', '계수 / 비율: 행·열 명칭 확인'), 'cells': cells})
 
-def simulate(level, payload):
-    d = D[level]; codes = d['codes']
-    f = np.zeros(len(codes))
+def _demand(level, payload):
+    codes = D[level]['codes']; f = np.zeros(len(codes))
     for s in json.loads(payload):
         a = float(s['amount'])
         if not np.isfinite(a) or a < 0: raise ValueError('수요 증가액은 유한한 0 이상의 수여야 합니다.')
         f[codes.index(s['code'])] += a
     if not f.sum() > 0: raise ValueError('한 산업 이상의 양의 수요 증가액을 입력하세요.')
+    return f
+
+def ripple(level, payload, rounds=7):
+    d = D[level]; f = _demand(level, payload); total = float((d['L'] @ f).sum())
+    cur = f.copy(); cum = 0.0; out = []
+    for k in range(rounds + 1):
+        cum += float(cur.sum()); idx = np.argsort(-cur)[:3]
+        out.append({'round': k, 'total': float(cur.sum()), 'cumulative': cum,
+                    'top': [{'name': d['names'][i], 'amount': float(cur[i])} for i in idx if cur[i] > 0]})
+        cur = d['Ad'] @ cur
+    return emit({'rounds': out, 'total': total, 'demand': float(f.sum()), 'rest': total - cum})
+
+def simulate(level, payload):
+    d = D[level]; codes = d['codes']; f = _demand(level, payload)
     x = d['L'] @ f; m = d['M'] @ f; v = d['V'] @ f
     result = [{'code': c, 'name': n, 'production': float(a), 'imports': float(b), 'valueAdded': float(e)}
               for c, n, a, b, e in zip(codes, d['names'], x, m, v)]

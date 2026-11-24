@@ -23,6 +23,10 @@ async function handle({id,type,payload}) {
       py.globals.set('sheet_input',payload.sheet);
       py.globals.set('row_input',payload.row||'');
       result=py.runPython('explore(level_input, sheet_input, row_input)');
+    } else if(type==='ripple') {
+      py.globals.set('level_input',payload.level);
+      py.globals.set('scenario_input',JSON.stringify(payload.shocks));
+      result=py.runPython('ripple(level_input, scenario_input)');
     } else if(type==='linkage') {
       py.globals.set('level_input',payload.level);
       result=py.runPython('linkage(level_input)');

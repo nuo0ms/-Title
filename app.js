@@ -8,7 +8,7 @@ function call(type,payload){return new Promise((resolve,reject)=>{const id=++nex
 function startWorker(){worker=new Worker('./worker.js');worker.onmessage=({data:d})=>{if(d.type==='status'){$('status').textContent=d.text;return;}const p=requests.get(d.id);if(!p)return;requests.delete(d.id);d.ok?p.resolve(d.result):p.reject(Error(d.error));};worker.onerror=e=>{for(const p of requests.values())p.reject(Error(e.message||'Worker 실행 오류'));requests.clear();};}
 const lab=x=>x.code+' '+x.name+(x.tag?' ('+x.tag+')':'');
 function options(el,list){el.replaceChildren(...list.map(x=>{const o=document.createElement('option');o.value=x.code;o.textContent=lab(x);return o;}));}
-function invalidate(){result=null;$('results').hidden=true;}
+function invalidate(){result=null;$('results').hidden=true;$('ripple-body').hidden=true;$('ripple-empty').hidden=false;}
 const IDS=['link-sort','fd-search','fd-sector','sheet','row','sector','add','run','row-search','col-search','sector-search','amount','level'];
 function setEnabled(on){for(const id of IDS)$(id).disabled=!on;}
 async function useLevel(lv){
@@ -44,7 +44,25 @@ function renderBasket(){$('basket').replaceChildren(...basket.map((s,i)=>{const 
 $('scenario').onsubmit=e=>{e.preventDefault();const amount=Number($('amount').value),s=sectors.find(s=>s.code===$('sector').value);if(!s||!Number.isFinite(amount)||amount<=0){$('sim-status').textContent='산업과 양의 증가액을 확인하세요.';return;}basket.push({...s,amount});invalidate();renderBasket();};
 $('level').onchange=()=>{if(booted)useLevel($('level').value);};
 $('clear').onclick=()=>{basket=[];invalidate();renderBasket();};
-$('run').onclick=async()=>{if(!basket.length){$('sim-status').textContent='시나리오를 먼저 추가하세요.';return;}const snapshot=basket.map(s=>({...s}));$('run').disabled=true;$('sim-status').textContent='계산 중…';try{const r=await call('simulate',{level,shocks:snapshot});if(JSON.stringify(snapshot)!==JSON.stringify(basket)){$('sim-status').textContent='입력이 변경되었습니다. 다시 계산하세요.';return;}result=r;renderResult();$('sim-status').textContent='계산 완료. 아래 결과는 현재 시나리오에 대응합니다.';}catch(e){invalidate();$('sim-status').textContent='계산 실패: '+e.message;}finally{$('run').disabled=false;}};
+$('run').onclick=async()=>{if(!basket.length){$('sim-status').textContent='시나리오를 먼저 추가하세요.';return;}const snapshot=basket.map(s=>({...s}));$('run').disabled=true;$('sim-status').textContent='계산 중…';try{const r=await call('simulate',{level,shocks:snapshot});const rp=await call('ripple',{level,shocks:snapshot}).catch(()=>null);if(JSON.stringify(snapshot)!==JSON.stringify(basket)){$('sim-status').textContent='입력이 변경되었습니다. 다시 계산하세요.';return;}result=r;renderResult();if(rp)renderRipple(rp);$('sim-status').textContent='계산 완료. 아래 결과는 현재 시나리오에 대응합니다.';}catch(e){invalidate();$('sim-status').textContent='계산 실패: '+e.message;}finally{$('run').disabled=false;}};
+
+function renderRipple(d){
+ $('ripple-empty').hidden=true;$('ripple-body').hidden=false;
+ const R=d.rounds,T=d.total,p=v=>(v/T*100).toFixed(1)+'%',n=v=>fmt(Math.round(v));
+ const k95=R.find(r=>r.cumulative>=T*.95),name=r=>r.round===0?'직접':r.round+'차';
+ $('ripple-summary').textContent='직접 수요 '+n(d.demand)+'백만원이 '+(R[1]?'1차에서 '+n(R[1].total)+'백만원(전체의 '+p(R[1].total)+'), ':'')+(R[2]?'2차에서 '+n(R[2].total)+'백만원(전체의 '+p(R[2].total)+')':'')+'으로 이어져 모두 합하면 '+n(T)+'백만원(생산유발승수 '+(T/d.demand).toFixed(2)+')이 됩니다. '+(k95?'전체 효과의 95%는 '+name(k95)+' 단계까지 나타납니다.':'전체 효과의 95%에 이르려면 '+R.length+'단계 이상이 필요합니다.');
+ const rows=R.map(r=>({label:name(r),amt:r.total,start:r.cumulative-r.total,direct:r.round===0})).concat(d.rest>0.5?[{label:(R.length)+'차 이후',amt:d.rest,start:R[R.length-1].cumulative,rest:true}]:[]);
+ const W=640,rh=30,top=14,ml=64,mr=84,H=top+rows.length*rh+34,sx=v=>ml+v/T*(W-ml-mr);
+ const s=svg('svg',{viewBox:`0 0 ${W} ${H}`,role:'img','aria-label':'단계별 파급 폭포 차트'});
+ rows.forEach((r,i)=>{const y=top+i*rh;
+  s.append(svg('text',{x:ml-10,y:y+rh/2+4,'text-anchor':'end',class:'ax'},r.label));
+  s.append(svg('rect',{x:sx(r.start),y:y+4,width:Math.max(1.5,sx(r.start+r.amt)-sx(r.start)),height:rh-10,class:r.direct?'rp-direct':r.rest?'rp-rest':'rp-step'}));
+  s.append(svg('text',{x:sx(r.start+r.amt)+6,y:y+rh/2+4},'+'+n(r.amt)));});
+ const yb=top+rows.length*rh;
+ s.append(svg('line',{x1:sx(T),x2:sx(T),y1:top,y2:yb+4,class:'ref'}),svg('text',{x:sx(T),y:yb+20,'text-anchor':'middle',class:'ax'},'합계 '+n(T)+' (승수 '+(T/d.demand).toFixed(2)+')'));
+ $('ripple-chart').replaceChildren(s);
+ $('ripple-rows').replaceChildren(...R.map(r=>{const tr=document.createElement('tr');[name(r),n(r.total),p(r.cumulative),r.top.map(t=>t.name+' '+n(t.amount)).join(' · ')].forEach(v=>tr.append(text('td',v)));return tr;}));
+}
 function renderResult(){$('results').hidden=false;$('cards').replaceChildren(...[['수요 증가액',result.demand],['생산유발액',result.production],['수입유발액',result.imports],['부가가치유발액',result.valueAdded]].map(([title,v])=>{const d=text('div',title);d.className='card';d.append(text('strong',fmt(v)),text('span','백만원'));return d;}));const max=Math.max(...result.rows.map(r=>r.production),1);$('bars').replaceChildren(...result.rows.slice(0,15).map(r=>{const d=text('div',r.name+' · '+fmt(r.production)+'백만원');d.className='bar';const t=document.createElement('div');t.className='track';const f=document.createElement('div');f.className='fill';f.style.width=Math.max(0,r.production/max*100)+'%';t.append(f);d.append(t);return d;}));$('result-rows').replaceChildren(...result.rows.map(r=>{const tr=document.createElement('tr');[r.code,r.name,fmt(r.production),fmt(r.imports),fmt(r.valueAdded)].forEach(v=>tr.append(text('td',v)));return tr;}));}
 function csvCell(v){let s=String(v);if(/^[=+@-]/.test(s)&&typeof v!=='number')s="'"+s;return '"'+s.replaceAll('"','""')+'"';}
 $('download').onclick=()=>{if(!result)return;const rows=[['산업코드','산업명','생산유발액_백만원','수입유발액_백만원','부가가치유발액_백만원'],...result.rows.map(r=>[r.code,r.name,r.production,r.imports,r.valueAdded])];const url=URL.createObjectURL(new Blob(['\ufeff'+rows.map(r=>r.map(csvCell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='io-2023-'+level+'-results.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
